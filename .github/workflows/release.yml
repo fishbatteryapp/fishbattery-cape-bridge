@@ -2,11 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Release tag (example: v1.0.0)"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -70,28 +65,20 @@ jobs:
           chmod +x ./gradlew
           ./gradlew clean build -Ptarget=${{ matrix.target }} -Ploader=${{ matrix.loader }}
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: jar-${{ matrix.mc }}-${{ matrix.loader }}
-          path: build/libs/*.jar
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f -name "*.jar" -print
+      - name: Resolve mod version
+        id: modver
+        run: |
+          MOD_VERSION="$(grep '^mod_version=' gradle.properties | cut -d'=' -f2)"
+          echo "mod_version=${MOD_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ matrix.mc }}-${MOD_VERSION}-${{ matrix.loader }}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: ${{ github.event.inputs.release_tag }}
+          tag_name: ${{ steps.modver.outputs.tag }}
+          name: ${{ steps.modver.outputs.tag }}
           generate_release_notes: true
-          files: artifacts/**/*.jar
+          overwrite_files: true
+          files: |
+            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-${{ matrix.mc }}-${{ matrix.loader }}.jar
+            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-sources.jar
