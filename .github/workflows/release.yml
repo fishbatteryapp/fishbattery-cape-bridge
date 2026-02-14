@@ -19,51 +19,39 @@ jobs:
         include:
           - mc: "1.21.1"
             target: "mc1211"
-            java: "21"
             loader: "fabric"
           - mc: "1.21.1"
             target: "mc1211"
-            java: "21"
             loader: "quilt"
           - mc: "1.20.1"
             target: "mc1201"
-            java: "17"
             loader: "fabric"
           - mc: "1.20.1"
             target: "mc1201"
-            java: "17"
             loader: "quilt"
           - mc: "1.19.2"
             target: "mc1192"
-            java: "17"
             loader: "fabric"
           - mc: "1.19.2"
             target: "mc1192"
-            java: "17"
             loader: "quilt"
           - mc: "1.18.2"
             target: "mc1182"
-            java: "17"
             loader: "fabric"
           - mc: "1.18.2"
             target: "mc1182"
-            java: "17"
             loader: "quilt"
           - mc: "1.17.1"
             target: "mc1171"
-            java: "16"
             loader: "fabric"
           - mc: "1.17.1"
             target: "mc1171"
-            java: "16"
             loader: "quilt"
           - mc: "1.16.5"
             target: "mc1165"
-            java: "8"
             loader: "fabric"
           - mc: "1.16.5"
             target: "mc1165"
-            java: "8"
             loader: "quilt"
 
     runs-on: ubuntu-latest
@@ -75,7 +63,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ matrix.java }}
+          java-version: "21"
 
       - name: Build
         run: |
