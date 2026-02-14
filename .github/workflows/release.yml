@@ -7,47 +7,38 @@ permissions:
   contents: write
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          targets = json.loads(Path("config/release-matrix.json").read_text(encoding="utf-8"))
+          include = []
+          for t in targets:
+            mc = str(t["minecraft"])
+            tid = str(t["id"])
+            include.append({"mc": mc, "target": tid, "loader": "fabric"})
+            include.append({"mc": mc, "target": tid, "loader": "quilt"})
+          matrix = json.dumps({'include': include}, separators=(',', ':'))
+          print(f"matrix={matrix}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"matrix={matrix}\n")
+          PY
+
   build:
+    needs: prepare-matrix
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - mc: "1.21.1"
-            target: "mc1211"
-            loader: "fabric"
-          - mc: "1.21.1"
-            target: "mc1211"
-            loader: "quilt"
-          - mc: "1.20.1"
-            target: "mc1201"
-            loader: "fabric"
-          - mc: "1.20.1"
-            target: "mc1201"
-            loader: "quilt"
-          - mc: "1.19.2"
-            target: "mc1192"
-            loader: "fabric"
-          - mc: "1.19.2"
-            target: "mc1192"
-            loader: "quilt"
-          - mc: "1.18.2"
-            target: "mc1182"
-            loader: "fabric"
-          - mc: "1.18.2"
-            target: "mc1182"
-            loader: "quilt"
-          - mc: "1.17.1"
-            target: "mc1171"
-            loader: "fabric"
-          - mc: "1.17.1"
-            target: "mc1171"
-            loader: "quilt"
-          - mc: "1.16.5"
-            target: "mc1165"
-            loader: "fabric"
-          - mc: "1.16.5"
-            target: "mc1165"
-            loader: "quilt"
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
 
     runs-on: ubuntu-latest
 

@@ -1,44 +1,42 @@
 [
-  {
-    "id": "mc1211",
-    "minecraft": "1.21.1",
-    "java": 21,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  },
-  {
-    "id": "mc1201",
-    "minecraft": "1.20.1",
-    "java": 17,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  },
-  {
-    "id": "mc1192",
-    "minecraft": "1.19.2",
-    "java": 17,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  },
-  {
-    "id": "mc1182",
-    "minecraft": "1.18.2",
-    "java": 17,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  },
-  {
-    "id": "mc1171",
-    "minecraft": "1.17.1",
-    "java": 16,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  },
-  {
-    "id": "mc1165",
-    "minecraft": "1.16.5",
-    "java": 8,
-    "fabricLoader": "0.16.10",
-    "quiltLoader": "latest"
-  }
+  { "id": "mc12111", "minecraft": "1.21.11", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc12110", "minecraft": "1.21.10", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1219", "minecraft": "1.21.9", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1218", "minecraft": "1.21.8", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1217", "minecraft": "1.21.7", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1216", "minecraft": "1.21.6", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1215", "minecraft": "1.21.5", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1214", "minecraft": "1.21.4", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1213", "minecraft": "1.21.3", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1212", "minecraft": "1.21.2", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1211", "minecraft": "1.21.1", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1210", "minecraft": "1.21", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+
+  { "id": "mc1206", "minecraft": "1.20.6", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1205", "minecraft": "1.20.5", "java": 21, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1204", "minecraft": "1.20.4", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1203", "minecraft": "1.20.3", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1202", "minecraft": "1.20.2", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1201", "minecraft": "1.20.1", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1200", "minecraft": "1.20", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+
+  { "id": "mc1194", "minecraft": "1.19.4", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1193", "minecraft": "1.19.3", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1192", "minecraft": "1.19.2", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1191", "minecraft": "1.19.1", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1190", "minecraft": "1.19", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+
+  { "id": "mc1182", "minecraft": "1.18.2", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1181", "minecraft": "1.18.1", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1180", "minecraft": "1.18", "java": 17, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+
+  { "id": "mc1171", "minecraft": "1.17.1", "java": 16, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1170", "minecraft": "1.17", "java": 16, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+
+  { "id": "mc1165", "minecraft": "1.16.5", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1164", "minecraft": "1.16.4", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1163", "minecraft": "1.16.3", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1162", "minecraft": "1.16.2", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1161", "minecraft": "1.16.1", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" },
+  { "id": "mc1160", "minecraft": "1.16", "java": 8, "fabricLoader": "0.16.10", "quiltLoader": "latest" }
 ]

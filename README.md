@@ -4,7 +4,7 @@ Standalone repo scaffold for the launcher cape bridge mod.
 
 ## Targets
 - Fabric and Quilt
-- Minecraft versions: 1.21.1, 1.20.1, 1.19.2, 1.18.2, 1.17.1, 1.16.5
+- Minecraft versions: 1.21.11 down to 1.16 (matrix in `config/release-matrix.json`)
 
 ## Build one target
 ```powershell

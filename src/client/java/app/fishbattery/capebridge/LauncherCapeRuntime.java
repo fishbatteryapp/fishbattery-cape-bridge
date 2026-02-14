@@ -5,15 +5,21 @@ import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.UUID;
 
 public final class LauncherCapeRuntime {
   private static final String CAPE_PATH_PROPERTY = "fishbattery.launcherCape.path";
+  private static final String CAPE_URL_PROPERTY = "fishbattery.launcherCape.url";
 
-  private static String cachedPath = "";
-  private static long cachedMtime = -1L;
+  private static String cachedSourceKey = "";
   private static Object cachedTextureId = null;
 
   private LauncherCapeRuntime() {}
@@ -23,13 +29,10 @@ public final class LauncherCapeRuntime {
       if (!isLocalPlayerProfile(playerInfoLike)) return null;
 
       final String rawPath = System.getProperty(CAPE_PATH_PROPERTY, "").trim();
-      if (rawPath.isEmpty()) return null;
-
-      final Path path = Path.of(rawPath);
-      if (!Files.isRegularFile(path)) return null;
-
-      final long mtime = Files.getLastModifiedTime(path).toMillis();
-      if (rawPath.equals(cachedPath) && mtime == cachedMtime && cachedTextureId != null) {
+      final String rawUrl = System.getProperty(CAPE_URL_PROPERTY, "").trim();
+      final CapeSource source = resolveCapeSource(rawPath, rawUrl);
+      if (source == null) return null;
+      if (source.cacheKey.equals(cachedSourceKey) && cachedTextureId != null) {
         return cachedTextureId;
       }
 
@@ -39,7 +42,7 @@ public final class LauncherCapeRuntime {
       final Object textureManager = invokeNoArg(mc, "getTextureManager", "getTextureManager");
       if (textureManager == null) return null;
 
-      final Object nativeImage = readNativeImage(path);
+      final Object nativeImage = readNativeImage(source.stream);
       if (nativeImage == null) return null;
 
       final Object dynamicTexture = newDynamicTexture(nativeImage);
@@ -50,8 +53,7 @@ public final class LauncherCapeRuntime {
 
       if (!registerTexture(textureManager, textureId, dynamicTexture)) return null;
 
-      cachedPath = rawPath;
-      cachedMtime = mtime;
+      cachedSourceKey = source.cacheKey;
       cachedTextureId = textureId;
       return textureId;
     } catch (Throwable t) {
@@ -87,17 +89,69 @@ public final class LauncherCapeRuntime {
     );
   }
 
-  private static Object readNativeImage(Path path) throws IOException {
+  private static Object readNativeImage(InputStream input) throws IOException {
     final Class<?> clazz = findClass("com.mojang.blaze3d.platform.NativeImage");
     if (clazz == null) return null;
 
     final Method read = findMethod(clazz, "read", 1);
     if (read == null) return null;
 
-    try (InputStream in = Files.newInputStream(path)) {
+    try (InputStream in = input) {
       return read.invoke(null, in);
     } catch (Exception e) {
       return null;
+    }
+  }
+
+  private static CapeSource resolveCapeSource(String rawPath, String rawUrl) {
+    if (!rawPath.isEmpty()) {
+      try {
+        final Path path = Path.of(rawPath);
+        if (Files.isRegularFile(path)) {
+          final long mtime = Files.getLastModifiedTime(path).toMillis();
+          return new CapeSource(Files.newInputStream(path), "path:" + rawPath + ":" + mtime);
+        }
+      } catch (Exception ignored) {}
+    }
+
+    if (rawUrl.isEmpty()) return null;
+    try {
+      if (rawUrl.startsWith("data:")) {
+        final int comma = rawUrl.indexOf(',');
+        if (comma <= 0 || comma >= rawUrl.length() - 1) return null;
+        final String head = rawUrl.substring(0, comma);
+        final String body = rawUrl.substring(comma + 1);
+        final byte[] bytes = head.contains(";base64")
+          ? Base64.getDecoder().decode(body)
+          : URLDecoder.decode(body, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8);
+        return new CapeSource(new java.io.ByteArrayInputStream(bytes), "data:" + bytes.length);
+      }
+
+      if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+        final URL url = URI.create(rawUrl).toURL();
+        final HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(10000);
+        conn.setRequestProperty("User-Agent", "FishbatteryCapeBridge/1.0");
+        final int status = conn.getResponseCode();
+        if (status < 200 || status >= 300) {
+          conn.disconnect();
+          return null;
+        }
+        return new CapeSource(conn.getInputStream(), "url:" + rawUrl);
+      }
+    } catch (Exception ignored) {}
+    return null;
+  }
+
+  private static final class CapeSource {
+    final InputStream stream;
+    final String cacheKey;
+
+    CapeSource(InputStream stream, String cacheKey) {
+      this.stream = stream;
+      this.cacheKey = cacheKey;
     }
   }
 
