@@ -62,6 +62,31 @@ public final class LauncherCapeRuntime {
     }
   }
 
+  public static Object tryReplaceCapeOnSkin(Object skinLike, Object capeTextureId) {
+    if (skinLike == null || capeTextureId == null) return null;
+    try {
+      final Object body = invokeNoArg(skinLike, "body", "texture", "skin", "getTexture");
+      final Object cape = invokeNoArg(skinLike, "cape", "capeTexture", "getCapeTexture");
+      final Object elytra = invokeNoArg(skinLike, "elytra", "elytraTexture", "getElytraTexture");
+      final Object model = invokeNoArg(skinLike, "model", "modelType", "getModel");
+      final Object secure = invokeNoArg(skinLike, "secure", "isSecure");
+
+      if (body == null || model == null || secure == null) return null;
+      // Keep old cape if no replacement provided (defensive), but we always pass replacement.
+      final Object nextCape = capeTextureId != null ? capeTextureId : cape;
+
+      for (Constructor<?> c : skinLike.getClass().getDeclaredConstructors()) {
+        final Class<?>[] p = c.getParameterTypes();
+        if (p.length != 5) continue;
+        try {
+          c.setAccessible(true);
+          return c.newInstance(body, nextCape, elytra, model, secure);
+        } catch (Exception ignored) {}
+      }
+    } catch (Throwable ignored) {}
+    return null;
+  }
+
   private static boolean isLocalPlayerProfile(Object playerInfoLike) {
     final Object mc = getMinecraftInstance();
     if (mc == null) return false;

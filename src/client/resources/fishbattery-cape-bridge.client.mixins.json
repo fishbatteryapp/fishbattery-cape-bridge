@@ -4,7 +4,9 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "PlayerListEntryCapeMixin",
-    "PlayerInfoCapeMixin"
+    "PlayerListEntrySkinMixin",
+    "PlayerInfoCapeMixin",
+    "PlayerInfoSkinMixin"
   ],
   "injectors": {
     "defaultRequire": 1
