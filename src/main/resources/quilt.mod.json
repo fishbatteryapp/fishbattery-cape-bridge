@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "quilt_loader": {
+    "group": "app.fishbattery",
+    "id": "${id}",
+    "version": "${version}",
+    "metadata": {
+      "name": "Fishbattery Cape Bridge (Quilt)",
+      "description": "Applies launcher-selected local capes for the signed-in player.",
+      "contributors": {
+        "Fishbattery": "Owner"
+      },
+      "contact": {
+        "homepage": "https://github.com/fishbatteryapp/fishbattery-cape-bridge",
+        "sources": "https://github.com/fishbatteryapp/fishbattery-cape-bridge"
+      },
+      "icon": "assets/fishbattery_cape_bridge/icon.png",
+      "license": "GPL-3.0-or-later"
+    },
+    "entrypoints": {
+      "init": "app.fishbattery.capebridge.FishbatteryCapeBridgeMod",
+      "client_init": "app.fishbattery.capebridge.FishbatteryCapeBridgeClient"
+    },
+    "intermediate_mappings": "net.fabricmc:intermediary",
+    "depends": [
+      {
+        "id": "quilt_loader",
+        "versions": ">=${loader}"
+      },
+      {
+        "id": "minecraft",
+        "versions": "~${minecraft}"
+      }
+    ]
+  },
+  "mixin": [
+    "fishbattery-cape-bridge.mixins.json",
+    "fishbattery-cape-bridge.client.mixins.json"
+  ]
+}

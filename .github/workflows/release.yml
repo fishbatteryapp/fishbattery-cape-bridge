@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (example: v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mc: "1.21.1"
+            target: "mc1211"
+            java: "21"
+            loader: "fabric"
+          - mc: "1.21.1"
+            target: "mc1211"
+            java: "21"
+            loader: "quilt"
+          - mc: "1.20.1"
+            target: "mc1201"
+            java: "17"
+            loader: "fabric"
+          - mc: "1.20.1"
+            target: "mc1201"
+            java: "17"
+            loader: "quilt"
+          - mc: "1.19.2"
+            target: "mc1192"
+            java: "17"
+            loader: "fabric"
+          - mc: "1.19.2"
+            target: "mc1192"
+            java: "17"
+            loader: "quilt"
+          - mc: "1.18.2"
+            target: "mc1182"
+            java: "17"
+            loader: "fabric"
+          - mc: "1.18.2"
+            target: "mc1182"
+            java: "17"
+            loader: "quilt"
+          - mc: "1.17.1"
+            target: "mc1171"
+            java: "16"
+            loader: "fabric"
+          - mc: "1.17.1"
+            target: "mc1171"
+            java: "16"
+            loader: "quilt"
+          - mc: "1.16.5"
+            target: "mc1165"
+            java: "8"
+            loader: "fabric"
+          - mc: "1.16.5"
+            target: "mc1165"
+            java: "8"
+            loader: "quilt"
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build -Ptarget=${{ matrix.target }} -Ploader=${{ matrix.loader }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar-${{ matrix.mc }}-${{ matrix.loader }}
+          path: build/libs/*.jar
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -name "*.jar" -print
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: ${{ github.event.inputs.release_tag }}
+          generate_release_notes: true
+          files: artifacts/**/*.jar

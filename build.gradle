@@ -1,0 +1,159 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version '1.14-SNAPSHOT'
+    id 'maven-publish'
+}
+
+import groovy.json.JsonSlurper
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = "fishbattery-cape-bridge"
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.quiltmc.org/repository/release/' }
+}
+
+final String targetId = String.valueOf(findProperty('target') ?: 'mc1211')
+final String targetLoader = String.valueOf(findProperty('loader') ?: 'fabric').toLowerCase(Locale.ROOT)
+if (!(targetLoader in ['fabric', 'quilt'])) {
+    throw new GradleException("Invalid -Ploader=${targetLoader}. Expected fabric or quilt.")
+}
+
+final File matrixFile = file('config/release-matrix.json')
+final List matrix = (List) new JsonSlurper().parseText(matrixFile.getText('UTF-8'))
+final Map target = (Map) matrix.find { String.valueOf(it.id) == targetId }
+if (!target) {
+    throw new GradleException("Target ${targetId} not found in config/release-matrix.json")
+}
+final String targetMc = String.valueOf(target.minecraft)
+
+final String javaLevel = String.valueOf(target.java)
+final String targetClassifier = "${targetMc}-${targetLoader}"
+final boolean supportsSplitSources = !(targetMc.startsWith('1.17') || targetMc.startsWith('1.16'))
+
+String resolveQuiltLoaderVersion(String mc, Object pinned) {
+    final String raw = String.valueOf(pinned ?: '').trim()
+    if (raw && !"latest".equalsIgnoreCase(raw)) return raw
+    try {
+        def data = new JsonSlurper().parse(new URL("https://meta.quiltmc.org/v3/versions/loader/${mc}"))
+        if (data instanceof List && !data.isEmpty()) {
+            def latest = data[0]
+            def loaderObj = latest?.loader
+            def version = loaderObj?.version ?: latest?.version
+            if (version) return String.valueOf(version)
+        }
+    } catch (Throwable ignored) {
+    }
+    throw new GradleException("Could not resolve a Quilt loader version for Minecraft ${mc}")
+}
+
+final String resolvedFabricLoader = String.valueOf(target.fabricLoader)
+final String resolvedQuiltLoader = targetLoader == 'quilt'
+    ? resolveQuiltLoaderVersion(targetMc, target.quiltLoader)
+    : String.valueOf(target.quiltLoader ?: '')
+
+loom {
+    if (supportsSplitSources) {
+        splitEnvironmentSourceSets()
+    }
+
+    mods {
+        fishbattery_cape_bridge {
+            sourceSet sourceSets.main
+            if (sourceSets.findByName('client') != null) {
+                sourceSet sourceSets.client
+            }
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${targetMc}"
+    mappings loom.officialMojangMappings()
+    compileOnly "net.fabricmc:sponge-mixin:0.16.5+mixin.0.8.7"
+
+    if (targetLoader == 'fabric') {
+        modImplementation "net.fabricmc:fabric-loader:${resolvedFabricLoader}"
+    } else {
+        modImplementation "org.quiltmc:quilt-loader:${resolvedQuiltLoader}"
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'loader', targetLoader
+    inputs.property 'minecraft', targetMc
+
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            minecraft: targetMc,
+            loader: resolvedFabricLoader,
+            id: project.mod_id
+        )
+    }
+
+    filesMatching('quilt.mod.json') {
+        expand(
+            version: project.version,
+            minecraft: targetMc,
+            loader: resolvedQuiltLoader,
+            id: project.mod_id
+        )
+    }
+}
+
+tasks.register('selectLoaderMetadata') {
+    doLast {
+        if (targetLoader == 'fabric') {
+            delete("${layout.buildDirectory.get().asFile}/resources/main/quilt.mod.json")
+        } else {
+            delete("${layout.buildDirectory.get().asFile}/resources/main/fabric.mod.json")
+        }
+    }
+}
+
+tasks.named('processResources') {
+    finalizedBy(tasks.named('selectLoaderMetadata'))
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = Integer.parseInt(javaLevel)
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.toVersion(javaLevel)
+    targetCompatibility = JavaVersion.toVersion(javaLevel)
+}
+
+jar {
+    archiveClassifier = targetClassifier
+    from('LICENSE') {
+        rename { "${it}_${base.archivesName.get()}" }
+    }
+}
+
+tasks.named('remapJar') {
+    archiveClassifier = targetClassifier
+}
+
+tasks.register('printTarget') {
+    doLast {
+        println "Building fishbattery-cape-bridge ${project.version} for MC ${targetMc} (${targetLoader}, Java ${javaLevel})"
+    }
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            artifactId = 'fishbattery-cape-bridge'
+            from components.java
+        }
+    }
+}
