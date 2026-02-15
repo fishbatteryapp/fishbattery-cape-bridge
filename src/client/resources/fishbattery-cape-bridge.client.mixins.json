@@ -4,6 +4,8 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "AbstractClientPlayerCapeMixin",
+    "PlayerInfoSkinMixin",
+    "PlayerListEntrySkinMixin",
     "TitleScreenCapeButtonMixin",
     "PauseScreenCapeButtonMixin"
   ],
