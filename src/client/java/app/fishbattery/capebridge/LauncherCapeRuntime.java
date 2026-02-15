@@ -36,6 +36,7 @@ public final class LauncherCapeRuntime {
 
   private static String cachedSourceKey = "";
   private static Object cachedTextureId = null;
+  private static Object cachedCapeTexture = null;
   private static String cachedLocalUuidRaw = "";
   private static UUID cachedLocalUuid = null;
 
@@ -54,20 +55,24 @@ public final class LauncherCapeRuntime {
   public static Object tryReplaceCapeOnSkin(Object skinLike, Object capeTextureId) {
     if (skinLike == null || capeTextureId == null) return null;
     try {
+      final Object currentCape = invokeNoArg(skinLike, "cape", "capeTexture", "getCapeTexture");
+      Object replacementCape = coerceCapeForExpectedType(currentCape != null ? currentCape.getClass() : null, capeTextureId);
+      if (replacementCape == null) replacementCape = capeTextureId;
+
       if (skinLike.getClass().isRecord()) {
-        final Object replacedRecord = tryReplaceCapeOnRecordSkin(skinLike, capeTextureId);
+        final Object replacedRecord = tryReplaceCapeOnRecordSkin(skinLike, replacementCape);
         if (replacedRecord != null) return replacedRecord;
       }
 
       final Object body = invokeNoArg(skinLike, "body", "texture", "skin", "getTexture");
-      final Object cape = invokeNoArg(skinLike, "cape", "capeTexture", "getCapeTexture");
+      final Object cape = currentCape;
       final Object elytra = invokeNoArg(skinLike, "elytra", "elytraTexture", "getElytraTexture");
       final Object model = invokeNoArg(skinLike, "model", "modelType", "getModel");
       final Object secure = invokeNoArg(skinLike, "secure", "isSecure");
 
       if (body == null || model == null || secure == null) return null;
       // Keep old cape if no replacement provided (defensive), but we always pass replacement.
-      final Object nextCape = capeTextureId != null ? capeTextureId : cape;
+      final Object nextCape = replacementCape != null ? replacementCape : cape;
       final Object textureUrl = invokeNoArg(skinLike, "textureUrl", "skinUrl", "url", "getTextureUrl");
 
       for (Constructor<?> c : skinLike.getClass().getDeclaredConstructors()) {
@@ -107,8 +112,12 @@ public final class LauncherCapeRuntime {
 
       final int capeIndex = findCapeComponentIndex(components, capeTextureId);
       if (capeIndex < 0) return null;
-      if (!isAssignable(constructorTypes[capeIndex], capeTextureId.getClass())) return null;
-      args[capeIndex] = capeTextureId;
+      Object replacementCape = capeTextureId;
+      if (!isAssignable(constructorTypes[capeIndex], replacementCape.getClass())) {
+        replacementCape = coerceCapeForExpectedType(constructorTypes[capeIndex], capeTextureId);
+      }
+      if (replacementCape == null || !isAssignable(constructorTypes[capeIndex], replacementCape.getClass())) return null;
+      args[capeIndex] = replacementCape;
 
       final Constructor<?> constructor = skinClass.getDeclaredConstructor(constructorTypes);
       constructor.setAccessible(true);
@@ -176,6 +185,7 @@ public final class LauncherCapeRuntime {
       System.setProperty(CAPE_TIER_PROPERTY, "");
       cachedSourceKey = "";
       cachedTextureId = null;
+      cachedCapeTexture = null;
       saveSelectedCapeToCatalog("");
       saveSelectedCapeToMeta("", "", "", "");
       return true;
@@ -197,6 +207,7 @@ public final class LauncherCapeRuntime {
     System.setProperty(CAPE_TIER_PROPERTY, selected.tier);
     cachedSourceKey = "";
     cachedTextureId = null;
+    cachedCapeTexture = null;
     reloadCapeTextureFromSystemProperties();
     saveSelectedCapeToCatalog(selected.id);
     saveSelectedCapeToMeta(selected.id, selected.tier, selected.fullPath, selected.cloudUrl);
@@ -239,6 +250,7 @@ public final class LauncherCapeRuntime {
 
     cachedSourceKey = source.cacheKey;
     cachedTextureId = textureId;
+    cachedCapeTexture = createClientAssetTexture(textureId);
     return textureId;
   }
 
@@ -259,6 +271,16 @@ public final class LauncherCapeRuntime {
   }
 
   private static CapeSource resolveCapeSource(String rawPath, String rawUrl) {
+    if (!rawPath.isEmpty()) {
+      try {
+        final Path path = Path.of(rawPath);
+        if (Files.isRegularFile(path)) {
+          final long mtime = Files.getLastModifiedTime(path).toMillis();
+          return new CapeSource(Files.newInputStream(path), "path:" + rawPath + ":" + mtime);
+        }
+      } catch (Exception ignored) {}
+    }
+
     if (!rawUrl.isEmpty()) {
       try {
         if (rawUrl.startsWith("data:")) {
@@ -283,16 +305,6 @@ public final class LauncherCapeRuntime {
             return new CapeSource(conn.getInputStream(), "url:" + rawUrl);
           }
           conn.disconnect();
-        }
-      } catch (Exception ignored) {}
-    }
-
-    if (!rawPath.isEmpty()) {
-      try {
-        final Path path = Path.of(rawPath);
-        if (Files.isRegularFile(path)) {
-          final long mtime = Files.getLastModifiedTime(path).toMillis();
-          return new CapeSource(Files.newInputStream(path), "path:" + rawPath + ":" + mtime);
         }
       } catch (Exception ignored) {}
     }
@@ -396,6 +408,59 @@ public final class LauncherCapeRuntime {
     return false;
   }
 
+  private static Object coerceCapeForExpectedType(Class<?> expectedType, Object capeTextureId) {
+    if (capeTextureId == null) return null;
+    if (expectedType == null || isAssignable(expectedType, capeTextureId.getClass())) return capeTextureId;
+    final String typeName = String.valueOf(expectedType.getName());
+    if (!typeName.startsWith("net.minecraft.core.ClientAsset")) return null;
+    final Object wrapped = createClientAssetTexture(capeTextureId);
+    if (wrapped != null && isAssignable(expectedType, wrapped.getClass())) return wrapped;
+    return null;
+  }
+
+  private static Object createClientAssetTexture(Object textureId) {
+    if (textureId == null) return null;
+    if (cachedTextureId == textureId && cachedCapeTexture != null) return cachedCapeTexture;
+    try {
+      final Class<?> resourceTextureClass = Class.forName("net.minecraft.core.ClientAsset$ResourceTexture");
+      for (Constructor<?> c : resourceTextureClass.getDeclaredConstructors()) {
+        final Class<?>[] p = c.getParameterTypes();
+        if (p.length == 1 && isAssignable(p[0], textureId.getClass())) {
+          c.setAccessible(true);
+          return c.newInstance(textureId);
+        }
+        if (p.length == 2 && isAssignable(p[0], textureId.getClass()) && isAssignable(p[1], textureId.getClass())) {
+          c.setAccessible(true);
+          return c.newInstance(textureId, textureId);
+        }
+        if (p.length > 0 && isAssignable(p[0], textureId.getClass())) {
+          final Object[] args = new Object[p.length];
+          args[0] = textureId;
+          for (int i = 1; i < p.length; i++) {
+            if (isAssignable(p[i], textureId.getClass())) args[i] = textureId;
+            else if (!p[i].isPrimitive()) args[i] = null;
+            else args[i] = primitiveDefaultValue(p[i]);
+          }
+          c.setAccessible(true);
+          return c.newInstance(args);
+        }
+      }
+    } catch (Throwable ignored) {}
+    return null;
+  }
+
+  private static Object primitiveDefaultValue(Class<?> primitiveType) {
+    if (primitiveType == boolean.class) return Boolean.FALSE;
+    if (primitiveType == byte.class) return Byte.valueOf((byte) 0);
+    if (primitiveType == short.class) return Short.valueOf((short) 0);
+    if (primitiveType == int.class) return Integer.valueOf(0);
+    if (primitiveType == long.class) return Long.valueOf(0L);
+    if (primitiveType == float.class) return Float.valueOf(0.0F);
+    if (primitiveType == double.class) return Double.valueOf(0.0D);
+    if (primitiveType == char.class) return Character.valueOf('\0');
+    return null;
+  }
+
   private static Object invokeNoArg(Object target, String... names) {
     if (target == null) return null;
     for (String n : names) {
@@ -435,13 +500,28 @@ public final class LauncherCapeRuntime {
       cachedLocalUuid = null;
       return null;
     }
+    cachedLocalUuid = parseUuid(raw);
+    return cachedLocalUuid;
+  }
+
+  private static UUID parseUuid(String value) {
+    final String raw = String.valueOf(value == null ? "" : value).trim();
+    if (raw.isEmpty()) return null;
     try {
-      cachedLocalUuid = UUID.fromString(raw);
-      return cachedLocalUuid;
-    } catch (Exception ignored) {
-      cachedLocalUuid = null;
-      return null;
+      return UUID.fromString(raw);
+    } catch (Exception ignored) {}
+    if (raw.length() == 32) {
+      final String dashed =
+        raw.substring(0, 8) + "-" +
+        raw.substring(8, 12) + "-" +
+        raw.substring(12, 16) + "-" +
+        raw.substring(16, 20) + "-" +
+        raw.substring(20);
+      try {
+        return UUID.fromString(dashed);
+      } catch (Exception ignored) {}
     }
+    return null;
   }
 
   private static UUID extractUuid(Object target, Map<Object, Boolean> seen, int depth) {

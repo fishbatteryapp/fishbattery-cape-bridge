@@ -2,7 +2,9 @@ package app.fishbattery.capebridge;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
@@ -45,8 +47,9 @@ public final class CapeMenuBridge {
   }
 
   private static boolean addWidget(Screen screen, Object widget) {
+    final List<Method> methods = getHierarchyMethods(screen.getClass());
     Method preferred = null;
-    for (Method m : screen.getClass().getMethods()) {
+    for (Method m : methods) {
       if (m.getParameterCount() != 1) continue;
       final Class<?> p = m.getParameterTypes()[0];
       if (!p.isAssignableFrom(widget.getClass())) continue;
@@ -59,16 +62,18 @@ public final class CapeMenuBridge {
     }
     if (preferred != null) {
       try {
+        preferred.setAccessible(true);
         preferred.invoke(screen, widget);
         return true;
       } catch (Exception ignored) {}
     }
 
-    for (Method m : screen.getClass().getMethods()) {
+    for (Method m : methods) {
       if (m.getParameterCount() != 1) continue;
       final Class<?> p = m.getParameterTypes()[0];
       if (!p.isAssignableFrom(widget.getClass())) continue;
       try {
+        m.setAccessible(true);
         m.invoke(screen, widget);
         return true;
       } catch (Exception ignored) {}
@@ -157,6 +162,18 @@ public final class CapeMenuBridge {
       if (value instanceof Number) return ((Number) value).intValue();
     } catch (Exception ignored) {}
     return fallback;
+  }
+
+  private static List<Method> getHierarchyMethods(Class<?> type) {
+    final List<Method> out = new ArrayList<>();
+    Class<?> cursor = type;
+    while (cursor != null && cursor != Object.class) {
+      try {
+        Collections.addAll(out, cursor.getDeclaredMethods());
+      } catch (Throwable ignored) {}
+      cursor = cursor.getSuperclass();
+    }
+    return out;
   }
 
   private static boolean isAlreadyAdded(Object target) {
