@@ -17,8 +17,10 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -73,6 +75,9 @@ public final class LauncherCapeRuntime {
   public static Object tryReplaceCapeOnSkin(Object skinLike, Object capeTextureLike) {
     if (skinLike == null || capeTextureLike == null) return null;
     try {
+      final Object recordReplacement = tryReplaceCapeOnRecordSkin(skinLike, capeTextureLike);
+      if (recordReplacement != null) return recordReplacement;
+
       final Object body = invokeNoArg(skinLike, "body", "texture", "skin", "getTexture");
       final String textureUrl = stringOrNull(invokeNoArg(skinLike, "textureUrl", "getTextureUrl"));
       final Object elytra = invokeNoArg(skinLike, "elytra", "elytraTexture", "getElytraTexture");
@@ -196,9 +201,8 @@ public final class LauncherCapeRuntime {
   }
 
   private static Object reloadCapeTextureFromSystemProperties() {
-    final String rawPath = String.valueOf(System.getProperty(CAPE_PATH_PROPERTY, "")).trim();
-    final String rawUrl = String.valueOf(System.getProperty(CAPE_URL_PROPERTY, "")).trim();
-    final CapeSource source = resolveCapeSource(rawPath, rawUrl);
+    final CapeLocation location = resolveCapeLocation();
+    final CapeSource source = resolveCapeSource(location.fullPath, location.cloudUrl);
     if (source == null) return null;
     if (source.cacheKey.equals(cachedSourceKey) && cachedCapeTextureHandle != null) {
       return cachedCapeTextureHandle;
@@ -206,7 +210,7 @@ public final class LauncherCapeRuntime {
 
     final Object minecraft = getMinecraftInstance();
     if (minecraft == null) return null;
-    final Object textureManager = invokeNoArg(minecraft, "getTextureManager");
+    final Object textureManager = findTextureManager(minecraft);
     if (textureManager == null) return null;
 
     final Object nativeImage;
@@ -217,19 +221,16 @@ public final class LauncherCapeRuntime {
     }
     if (nativeImage == null) return null;
 
-    final Object dynamicTexture = newDynamicTexture(nativeImage);
+    final Object dynamicTexture = newDynamicTexture(textureManager, nativeImage);
     if (dynamicTexture == null) return null;
 
     final Object textureId = newIdentifier("fishbattery", "launcher_cape_dynamic");
     if (textureId == null) return null;
     if (!registerTexture(textureManager, textureId, dynamicTexture)) return null;
 
-    final Object capeTextureHandle = newCapeTextureHandle(textureId);
-    if (capeTextureHandle == null) return null;
-
     cachedSourceKey = source.cacheKey;
     cachedTextureId = textureId;
-    cachedCapeTextureHandle = capeTextureHandle;
+    cachedCapeTextureHandle = textureId;
     return cachedCapeTextureHandle;
   }
 
@@ -251,6 +252,9 @@ public final class LauncherCapeRuntime {
 
   private static boolean isLocalPlayerEntity(Object playerLike) {
     if (playerLike == null) return false;
+    if (looksLikeLocalPlayerClass(playerLike.getClass())) return true;
+    if (looksLikeRemotePlayerClass(playerLike.getClass())) return false;
+
     final Object minecraft = getMinecraftInstance();
     if (minecraft == null) return false;
 
@@ -266,9 +270,76 @@ public final class LauncherCapeRuntime {
 
   private static Object getMinecraftInstance() {
     return invokeStaticNoArg(
-      new String[] { "net.minecraft.client.Minecraft", "net.minecraft.client.MinecraftClient" },
-      new String[] { "getInstance" }
+      new String[] { "net.minecraft.client.Minecraft", "net.minecraft.client.MinecraftClient", "net.minecraft.class_310" },
+      new String[] { "getInstance", "method_1551" }
     );
+  }
+
+  private static boolean looksLikeLocalPlayerClass(Class<?> type) {
+    Class<?> cls = type;
+    while (cls != null) {
+      final String name = String.valueOf(cls.getName());
+      if (name.endsWith(".LocalPlayer") || name.endsWith(".class_746")) return true;
+      cls = cls.getSuperclass();
+    }
+    return false;
+  }
+
+  private static boolean looksLikeRemotePlayerClass(Class<?> type) {
+    Class<?> cls = type;
+    while (cls != null) {
+      final String name = String.valueOf(cls.getName());
+      if (name.endsWith(".RemotePlayer") || name.endsWith(".class_742")) return true;
+      cls = cls.getSuperclass();
+    }
+    return false;
+  }
+
+  private static Object findTextureManager(Object minecraft) {
+    final Object fromGetter = invokeNoArg(minecraft, "getTextureManager");
+    if (fromGetter != null) return fromGetter;
+
+    Class<?> cls = minecraft.getClass();
+    while (cls != null) {
+      for (Field field : cls.getDeclaredFields()) {
+        try {
+          field.setAccessible(true);
+          final Object value = field.get(minecraft);
+          if (value == null) continue;
+          final String typeName = String.valueOf(value.getClass().getName());
+          if (
+            typeName.endsWith(".TextureManager") ||
+            typeName.endsWith(".class_1060") ||
+            hasLikelyTextureRegisterMethod(value)
+          ) {
+            return value;
+          }
+        } catch (Exception ignored) {}
+      }
+      cls = cls.getSuperclass();
+    }
+
+    return null;
+  }
+
+  private static boolean hasLikelyTextureRegisterMethod(Object target) {
+    for (Method method : target.getClass().getMethods()) {
+      if (method.getParameterCount() != 2) continue;
+      final Class<?>[] p = method.getParameterTypes();
+      final String first = String.valueOf(p[0].getName());
+      final String second = String.valueOf(p[1].getName());
+      if (
+        first.endsWith(".Identifier") ||
+        first.endsWith(".ResourceLocation") ||
+        first.endsWith(".class_2960") ||
+        second.endsWith(".AbstractTexture") ||
+        second.endsWith(".DynamicTexture") ||
+        second.endsWith(".class_1043")
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static Object readNativeImage(InputStream input) throws IOException {
@@ -304,18 +375,120 @@ public final class LauncherCapeRuntime {
     }
   }
 
-  private static CapeSource resolveCapeSource(String rawPath, String rawUrl) {
-    if (!rawPath.isEmpty()) {
-      try {
-        final Path path = Paths.get(rawPath);
-        if (Files.isRegularFile(path)) {
-          final long mtime = Files.getLastModifiedTime(path).toMillis();
-          return new CapeSource(Files.newInputStream(path), "path:" + rawPath + ":" + mtime);
-        }
-      } catch (Exception ignored) {}
+  private static CapeLocation resolveCapeLocation() {
+    String fullPath = String.valueOf(System.getProperty(CAPE_PATH_PROPERTY, "")).trim();
+    String cloudUrl = String.valueOf(System.getProperty(CAPE_URL_PROPERTY, "")).trim();
+
+    if (fullPath.isEmpty() || cloudUrl.isEmpty()) {
+      final CapeLocation meta = readCapeLocationFromMeta();
+      if (fullPath.isEmpty()) fullPath = meta.fullPath;
+      if (cloudUrl.isEmpty()) cloudUrl = meta.cloudUrl;
     }
 
-    if (rawUrl.isEmpty()) return null;
+    if (fullPath.isEmpty() || cloudUrl.isEmpty()) {
+      final CapeOption selected = resolveSelectedCapeFromCatalog();
+      if (selected != null) {
+        if (fullPath.isEmpty()) fullPath = selected.fullPath;
+        if (cloudUrl.isEmpty()) cloudUrl = selected.cloudUrl;
+      }
+    }
+
+    return new CapeLocation(fullPath, cloudUrl);
+  }
+
+  private static CapeLocation readCapeLocationFromMeta() {
+    final Path metaPath = resolveMetaPath();
+    if (metaPath == null || !Files.isRegularFile(metaPath)) return new CapeLocation("", "");
+    try {
+      final String text = new String(Files.readAllBytes(metaPath), StandardCharsets.UTF_8);
+      final String fullPath = readJsonStringValue(text, "fullPath");
+      final String cloudUrl = readJsonStringValue(text, "cloudUrl");
+      return new CapeLocation(fullPath, cloudUrl);
+    } catch (Exception ignored) {
+      return new CapeLocation("", "");
+    }
+  }
+
+  private static CapeOption resolveSelectedCapeFromCatalog() {
+    String selected = getSelectedCapeId();
+    if (selected.isEmpty()) {
+      selected = readSelectedCapeIdFromCatalog();
+    }
+    if (selected.isEmpty()) return null;
+
+    final List<CapeOption> options = getSelectableCapes();
+    for (CapeOption option : options) {
+      if (selected.equals(option.id)) return option;
+    }
+    return null;
+  }
+
+  private static String readSelectedCapeIdFromCatalog() {
+    final Path catalogPath = resolveCatalogPath();
+    if (catalogPath == null || !Files.isRegularFile(catalogPath)) return "";
+    try {
+      final List<String> lines = Files.readAllLines(catalogPath, StandardCharsets.UTF_8);
+      for (String raw : lines) {
+        final String line = String.valueOf(raw).trim();
+        if (!line.startsWith("selected=")) continue;
+        return decodeCatalogField(line.substring("selected=".length()));
+      }
+    } catch (Exception ignored) {}
+    return "";
+  }
+
+  private static String readJsonStringValue(String json, String key) {
+    final String text = String.valueOf(json);
+    final String marker = "\"" + key + "\"";
+    final int keyIndex = text.indexOf(marker);
+    if (keyIndex < 0) return "";
+    int colon = text.indexOf(':', keyIndex + marker.length());
+    if (colon < 0) return "";
+    int firstQuote = text.indexOf('"', colon + 1);
+    if (firstQuote < 0) return "";
+    final StringBuilder out = new StringBuilder();
+    boolean escaping = false;
+    for (int i = firstQuote + 1; i < text.length(); i++) {
+      final char ch = text.charAt(i);
+      if (escaping) {
+        out.append(ch);
+        escaping = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaping = true;
+        continue;
+      }
+      if (ch == '"') {
+        break;
+      }
+      out.append(ch);
+    }
+    return out.toString();
+  }
+
+  private static CapeSource resolveCapeSource(String rawPath, String rawUrl) {
+    final CapeSource fromCloud = resolveCapeSourceFromUrl(rawUrl);
+    if (fromCloud != null) return fromCloud;
+    final CapeSource fromPath = resolveCapeSourceFromPath(rawPath);
+    if (fromPath != null) return fromPath;
+    return null;
+  }
+
+  private static CapeSource resolveCapeSourceFromPath(String rawPath) {
+    if (rawPath == null || rawPath.isEmpty()) return null;
+    try {
+      final Path path = Paths.get(rawPath);
+      if (Files.isRegularFile(path)) {
+        final long mtime = Files.getLastModifiedTime(path).toMillis();
+        return new CapeSource(Files.newInputStream(path), "path:" + rawPath + ":" + mtime);
+      }
+    } catch (Exception ignored) {}
+    return null;
+  }
+
+  private static CapeSource resolveCapeSourceFromUrl(String rawUrl) {
+    if (rawUrl == null || rawUrl.isEmpty()) return null;
     try {
       if (rawUrl.startsWith("data:")) {
         final int comma = rawUrl.indexOf(',');
@@ -334,7 +507,7 @@ public final class LauncherCapeRuntime {
         connection.setRequestMethod("GET");
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(10000);
-        connection.setRequestProperty("User-Agent", "FishbatteryCapeBridge/1.2.3");
+        connection.setRequestProperty("User-Agent", "FishbatteryCapeBridge/1.2.6");
         final int status = connection.getResponseCode();
         if (status < 200 || status >= 300) {
           connection.disconnect();
@@ -346,39 +519,58 @@ public final class LauncherCapeRuntime {
     return null;
   }
 
-  private static Object newDynamicTexture(Object nativeImage) {
+  private static Object newDynamicTexture(Object textureManager, Object nativeImage) {
+    if (textureManager != null) {
+      final Set<Class<?>> candidates = new LinkedHashSet<Class<?>>();
+      for (Method m : textureManager.getClass().getMethods()) {
+        if (m.getParameterCount() == 2) {
+          candidates.add(m.getParameterTypes()[1]);
+        }
+      }
+      for (Class<?> candidate : candidates) {
+        final Object out = instantiateDynamicTexture(candidate, nativeImage);
+        if (out != null) return out;
+      }
+    }
+
     for (String className : new String[] {
       "net.minecraft.client.renderer.texture.DynamicTexture",
-      "net.minecraft.client.texture.NativeImageBackedTexture"
+      "net.minecraft.client.texture.NativeImageBackedTexture",
+      "net.minecraft.class_1043"
     }) {
       final Class<?> cls = findClass(className);
       if (cls == null) continue;
+      final Object out = instantiateDynamicTexture(cls, nativeImage);
+      if (out != null) return out;
+    }
+    return null;
+  }
 
-      for (Constructor<?> c : cls.getDeclaredConstructors()) {
-        final Class<?>[] p = c.getParameterTypes();
-        try {
-          if (p.length == 1 && accepts(p[0], nativeImage)) {
-            c.setAccessible(true);
-            return c.newInstance(nativeImage);
-          }
+  private static Object instantiateDynamicTexture(Class<?> textureClass, Object nativeImage) {
+    for (Constructor<?> c : textureClass.getDeclaredConstructors()) {
+      final Class<?>[] p = c.getParameterTypes();
+      try {
+        if (p.length == 1 && accepts(p[0], nativeImage)) {
+          c.setAccessible(true);
+          return c.newInstance(nativeImage);
+        }
 
-          if (p.length == 2 && Supplier.class.isAssignableFrom(p[0]) && accepts(p[1], nativeImage)) {
-            c.setAccessible(true);
-            final Supplier<String> nameSupplier = new Supplier<String>() {
-              @Override
-              public String get() {
-                return "fishbattery_launcher_cape";
-              }
-            };
-            return c.newInstance(nameSupplier, nativeImage);
-          }
+        if (p.length == 2 && Supplier.class.isAssignableFrom(p[0]) && accepts(p[1], nativeImage)) {
+          c.setAccessible(true);
+          final Supplier<String> nameSupplier = new Supplier<String>() {
+            @Override
+            public String get() {
+              return "fishbattery_launcher_cape";
+            }
+          };
+          return c.newInstance(nameSupplier, nativeImage);
+        }
 
-          if (p.length == 2 && p[0] == String.class && accepts(p[1], nativeImage)) {
-            c.setAccessible(true);
-            return c.newInstance("fishbattery_launcher_cape", nativeImage);
-          }
-        } catch (Exception ignored) {}
-      }
+        if (p.length == 2 && p[0] == String.class && accepts(p[1], nativeImage)) {
+          c.setAccessible(true);
+          return c.newInstance("fishbattery_launcher_cape", nativeImage);
+        }
+      } catch (Exception ignored) {}
     }
     return null;
   }
@@ -387,7 +579,8 @@ public final class LauncherCapeRuntime {
     final Class<?>[] classes = new Class<?>[] {
       findClass("net.minecraft.resources.Identifier"),
       findClass("net.minecraft.resources.ResourceLocation"),
-      findClass("net.minecraft.util.Identifier")
+      findClass("net.minecraft.util.Identifier"),
+      findClass("net.minecraft.class_2960")
     };
 
     final String full = namespace + ":" + path;
@@ -430,6 +623,97 @@ public final class LauncherCapeRuntime {
     return null;
   }
 
+  private static Object tryReplaceCapeOnRecordSkin(Object skinLike, Object capeTextureLike) {
+    try {
+      final Class<?> skinClass = skinLike.getClass();
+      final Object[] components = getRecordComponents(skinClass);
+      if (components == null || components.length < 5) return null;
+
+      final Class<?>[] types = new Class<?>[components.length];
+      final Object[] values = new Object[components.length];
+      for (int i = 0; i < components.length; i++) {
+        final Object component = components[i];
+        final Method accessor = getRecordComponentAccessor(component);
+        final Class<?> type = getRecordComponentType(component);
+        if (accessor == null || type == null) return null;
+        accessor.setAccessible(true);
+        types[i] = type;
+        values[i] = accessor.invoke(skinLike);
+      }
+
+      final int capeIndex;
+      if (components.length == 5) capeIndex = 1;
+      else if (components.length == 6) capeIndex = 2;
+      else return null;
+
+      final Object convertedCape = coerceCapeTextureHandle(capeTextureLike, values[capeIndex], types[capeIndex]);
+      if (convertedCape == null) return null;
+      values[capeIndex] = convertedCape;
+
+      final Constructor<?> constructor = skinClass.getDeclaredConstructor(types);
+      constructor.setAccessible(true);
+      return constructor.newInstance(values);
+    } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  private static Object[] getRecordComponents(Class<?> cls) {
+    try {
+      final Method isRecord = Class.class.getMethod("isRecord");
+      final Object isRecordOut = isRecord.invoke(cls);
+      if (!(isRecordOut instanceof Boolean) || !((Boolean) isRecordOut).booleanValue()) return null;
+      final Method getRecordComponents = Class.class.getMethod("getRecordComponents");
+      final Object raw = getRecordComponents.invoke(cls);
+      return raw instanceof Object[] ? (Object[]) raw : null;
+    } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  private static Method getRecordComponentAccessor(Object component) {
+    try {
+      final Method getter = component.getClass().getMethod("getAccessor");
+      final Object out = getter.invoke(component);
+      return out instanceof Method ? (Method) out : null;
+    } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  private static Class<?> getRecordComponentType(Object component) {
+    try {
+      final Method getter = component.getClass().getMethod("getType");
+      final Object out = getter.invoke(component);
+      return out instanceof Class ? (Class<?>) out : null;
+    } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  private static Object coerceCapeTextureHandle(Object newTextureId, Object existingCapeValue, Class<?> expectedType) {
+    if (accepts(expectedType, newTextureId)) return newTextureId;
+
+    for (Constructor<?> c : expectedType.getDeclaredConstructors()) {
+      final Class<?>[] p = c.getParameterTypes();
+      try {
+        if (p.length == 2 && accepts(p[0], newTextureId) && accepts(p[1], newTextureId)) {
+          c.setAccessible(true);
+          return c.newInstance(newTextureId, newTextureId);
+        }
+        if (p.length == 1 && accepts(p[0], newTextureId)) {
+          c.setAccessible(true);
+          return c.newInstance(newTextureId);
+        }
+      } catch (Exception ignored) {}
+    }
+
+    if (existingCapeValue != null && accepts(expectedType, existingCapeValue)) {
+      return existingCapeValue;
+    }
+    return null;
+  }
+
   private static Object newCapeTextureHandle(Object textureId) {
     if (textureId == null) return null;
     try {
@@ -451,8 +735,6 @@ public final class LauncherCapeRuntime {
 
   private static boolean registerTexture(Object manager, Object id, Object texture) {
     for (Method m : manager.getClass().getMethods()) {
-      final String name = m.getName();
-      if (!("register".equals(name) || "registerTexture".equals(name))) continue;
       if (m.getParameterCount() != 2) continue;
       final Class<?>[] p = m.getParameterTypes();
       if (!accepts(p[0], id) || !accepts(p[1], texture)) continue;
@@ -647,6 +929,16 @@ public final class LauncherCapeRuntime {
     CapeSource(InputStream stream, String cacheKey) {
       this.stream = stream;
       this.cacheKey = cacheKey;
+    }
+  }
+
+  private static final class CapeLocation {
+    final String fullPath;
+    final String cloudUrl;
+
+    CapeLocation(String fullPath, String cloudUrl) {
+      this.fullPath = String.valueOf(fullPath == null ? "" : fullPath).trim();
+      this.cloudUrl = String.valueOf(cloudUrl == null ? "" : cloudUrl).trim();
     }
   }
 
