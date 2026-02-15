@@ -3,7 +3,8 @@
   "package": "app.fishbattery.capebridge.mixin",
   "compatibilityLevel": "JAVA_8",
   "client": [
-    "AbstractClientPlayerCapeMixin"
+    "AbstractClientPlayerCapeMixin",
+    "AvatarRendererCapeMixin"
   ],
   "injectors": {
     "defaultRequire": 1
