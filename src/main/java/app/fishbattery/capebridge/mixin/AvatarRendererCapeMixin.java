@@ -3,6 +3,7 @@ package app.fishbattery.capebridge.mixin;
 import app.fishbattery.capebridge.LauncherCapeRuntime;
 import java.lang.reflect.Field;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -10,7 +11,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(targets = "net.minecraft.client.renderer.entity.player.AvatarRenderer")
 abstract class AvatarRendererCapeMixin {
   @Inject(method = "extractRenderState", at = @At("RETURN"), require = 0)
-  private void fishbattery$patchAvatarRenderState(Object avatarLike, Object renderStateLike, float tickDelta, CallbackInfo ci) {
+  private void fishbattery$patchAvatarRenderState(
+    @Coerce Object avatarLike,
+    @Coerce Object renderStateLike,
+    float tickDelta,
+    CallbackInfo ci
+  ) {
     if (renderStateLike == null) return;
     final Object capeTexture = LauncherCapeRuntime.tryGetCapeTextureHandleForLocalPlayerEntity(avatarLike);
     if (capeTexture == null) return;
