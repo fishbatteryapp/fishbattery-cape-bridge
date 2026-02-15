@@ -129,16 +129,33 @@ public final class CapeSelectorScreen extends Screen {
 
   private void addWidgetCompat(Object widget) {
     if (widget == null) return;
-    for (String name : new String[] { "addRenderableWidget", "addDrawableChild", "addButton" }) {
-      for (Method m : this.getClass().getMethods()) {
-        if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
-        final Class<?> p = m.getParameterTypes()[0];
-        if (!p.isAssignableFrom(widget.getClass())) continue;
-        try {
-          m.invoke(this, widget);
-          return;
-        } catch (Exception ignored) {}
+    Method preferred = null;
+    for (Method m : this.getClass().getMethods()) {
+      if (m.getParameterCount() != 1) continue;
+      final Class<?> p = m.getParameterTypes()[0];
+      if (!p.isAssignableFrom(widget.getClass())) continue;
+      final Class<?> r = m.getReturnType();
+      if (r == void.class) continue;
+      if (r.isAssignableFrom(widget.getClass()) || widget.getClass().isAssignableFrom(r)) {
+        preferred = m;
+        break;
       }
+    }
+    if (preferred != null) {
+      try {
+        preferred.invoke(this, widget);
+        return;
+      } catch (Exception ignored) {}
+    }
+
+    for (Method m : this.getClass().getMethods()) {
+      if (m.getParameterCount() != 1) continue;
+      final Class<?> p = m.getParameterTypes()[0];
+      if (!p.isAssignableFrom(widget.getClass())) continue;
+      try {
+        m.invoke(this, widget);
+        return;
+      } catch (Exception ignored) {}
     }
   }
 
@@ -146,7 +163,11 @@ public final class CapeSelectorScreen extends Screen {
     if (label == null || onPress == null) return null;
     try {
       for (Method m : Button.class.getMethods()) {
-        if (!m.getName().equals("builder") || m.getParameterCount() != 2) continue;
+        if ((m.getModifiers() & java.lang.reflect.Modifier.STATIC) == 0) continue;
+        if (m.getParameterCount() != 2) continue;
+        final Class<?>[] p = m.getParameterTypes();
+        if (!p[0].isAssignableFrom(label.getClass())) continue;
+        if (!p[1].isAssignableFrom(onPress.getClass())) continue;
         final Object builder = m.invoke(null, label, onPress);
         if (builder == null) continue;
         if (!applyBuilderBounds(builder, x, y, width, height)) continue;
@@ -178,11 +199,13 @@ public final class CapeSelectorScreen extends Screen {
   }
 
   private boolean applyBuilderBounds(Object builder, int x, int y, int width, int height) {
-    for (String name : new String[] { "bounds", "dimensions" }) {
+    for (Method m : builder.getClass().getMethods()) {
+      if (m.getParameterCount() != 4) continue;
+      final Class<?>[] p = m.getParameterTypes();
+      if (p[0] != int.class || p[1] != int.class || p[2] != int.class || p[3] != int.class) continue;
       try {
-        final Method m = builder.getClass().getMethod(name, int.class, int.class, int.class, int.class);
-        m.invoke(builder, Integer.valueOf(x), Integer.valueOf(y), Integer.valueOf(width), Integer.valueOf(height));
-        return true;
+        final Object out = m.invoke(builder, Integer.valueOf(x), Integer.valueOf(y), Integer.valueOf(width), Integer.valueOf(height));
+        if (out == null || out == builder || builder.getClass().isAssignableFrom(out.getClass())) return true;
       } catch (Exception ignored) {}
     }
     return false;

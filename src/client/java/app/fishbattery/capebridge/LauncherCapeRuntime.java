@@ -1,5 +1,6 @@
 package app.fishbattery.capebridge;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -15,9 +16,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 
 public final class LauncherCapeRuntime {
   private static final String CAPE_PATH_PROPERTY = "fishbattery.launcherCape.path";
@@ -26,9 +32,12 @@ public final class LauncherCapeRuntime {
   private static final String CAPE_TIER_PROPERTY = "fishbattery.launcherCape.tier";
   private static final String CAPE_CATALOG_PROPERTY = "fishbattery.launcherCape.catalog";
   private static final String CAPE_META_PROPERTY = "fishbattery.launcherCape.meta";
+  private static final String PLAYER_UUID_PROPERTY = "fishbattery.launcherPlayer.uuid";
 
   private static String cachedSourceKey = "";
   private static Object cachedTextureId = null;
+  private static String cachedLocalUuidRaw = "";
+  private static UUID cachedLocalUuid = null;
 
   private LauncherCapeRuntime() {}
 
@@ -45,6 +54,11 @@ public final class LauncherCapeRuntime {
   public static Object tryReplaceCapeOnSkin(Object skinLike, Object capeTextureId) {
     if (skinLike == null || capeTextureId == null) return null;
     try {
+      if (skinLike.getClass().isRecord()) {
+        final Object replacedRecord = tryReplaceCapeOnRecordSkin(skinLike, capeTextureId);
+        if (replacedRecord != null) return replacedRecord;
+      }
+
       final Object body = invokeNoArg(skinLike, "body", "texture", "skin", "getTexture");
       final Object cape = invokeNoArg(skinLike, "cape", "capeTexture", "getCapeTexture");
       final Object elytra = invokeNoArg(skinLike, "elytra", "elytraTexture", "getElytraTexture");
@@ -54,17 +68,75 @@ public final class LauncherCapeRuntime {
       if (body == null || model == null || secure == null) return null;
       // Keep old cape if no replacement provided (defensive), but we always pass replacement.
       final Object nextCape = capeTextureId != null ? capeTextureId : cape;
+      final Object textureUrl = invokeNoArg(skinLike, "textureUrl", "skinUrl", "url", "getTextureUrl");
 
       for (Constructor<?> c : skinLike.getClass().getDeclaredConstructors()) {
         final Class<?>[] p = c.getParameterTypes();
-        if (p.length != 5) continue;
+        final Object[] args;
+        if (p.length == 5) {
+          args = new Object[] { body, nextCape, elytra, model, secure };
+        } else if (p.length == 6) {
+          args = new Object[] { body, textureUrl != null ? textureUrl : "", nextCape, elytra, model, secure };
+        } else {
+          continue;
+        }
+        if (!parametersMatch(p, args)) continue;
         try {
           c.setAccessible(true);
-          return c.newInstance(body, nextCape, elytra, model, secure);
+          return c.newInstance(args);
         } catch (Exception ignored) {}
       }
     } catch (Throwable ignored) {}
     return null;
+  }
+
+  private static Object tryReplaceCapeOnRecordSkin(Object skinLike, Object capeTextureId) {
+    try {
+      final Class<?> skinClass = skinLike.getClass();
+      final java.lang.reflect.RecordComponent[] components = skinClass.getRecordComponents();
+      if (components == null || components.length == 0) return null;
+
+      final Class<?>[] constructorTypes = new Class<?>[components.length];
+      final Object[] args = new Object[components.length];
+      for (int i = 0; i < components.length; i++) {
+        constructorTypes[i] = components[i].getType();
+        Method accessor = components[i].getAccessor();
+        accessor.setAccessible(true);
+        args[i] = accessor.invoke(skinLike);
+      }
+
+      final int capeIndex = findCapeComponentIndex(components, capeTextureId);
+      if (capeIndex < 0) return null;
+      if (!isAssignable(constructorTypes[capeIndex], capeTextureId.getClass())) return null;
+      args[capeIndex] = capeTextureId;
+
+      final Constructor<?> constructor = skinClass.getDeclaredConstructor(constructorTypes);
+      constructor.setAccessible(true);
+      return constructor.newInstance(args);
+    } catch (Throwable ignored) {
+      return null;
+    }
+  }
+
+  private static int findCapeComponentIndex(java.lang.reflect.RecordComponent[] components, Object capeTextureId) {
+    final Class<?> capeType = capeTextureId.getClass();
+    int matchCount = 0;
+    int lastMatch = -1;
+    for (int i = 0; i < components.length; i++) {
+      final Class<?> type = components[i].getType();
+      if (isAssignable(type, capeType) || isAssignable(capeType, type)) {
+        matchCount += 1;
+        lastMatch = i;
+        if (matchCount == 2) return i;
+      }
+    }
+    if (matchCount == 1) return lastMatch;
+
+    for (int i = 0; i < components.length; i++) {
+      final String name = String.valueOf(components[i].getName()).toLowerCase(Locale.ROOT);
+      if (name.contains("cape")) return i;
+    }
+    return -1;
   }
 
   public static List<CapeOption> getSelectableCapes() {
@@ -140,13 +212,13 @@ public final class LauncherCapeRuntime {
       return cachedTextureId;
     }
 
-    final Object mc = getMinecraftInstance();
+    final Minecraft mc = Minecraft.getInstance();
     if (mc == null) return null;
 
-    final Object textureManager = invokeNoArg(mc, "getTextureManager", "getTextureManager");
+    final Object textureManager = mc.getTextureManager();
     if (textureManager == null) return null;
 
-    final Object nativeImage;
+    final NativeImage nativeImage;
     try {
       nativeImage = readNativeImage(source.stream);
     } catch (IOException ignored) {
@@ -157,7 +229,10 @@ public final class LauncherCapeRuntime {
     final Object dynamicTexture = newDynamicTexture(nativeImage);
     if (dynamicTexture == null) return null;
 
-    final Object textureId = newIdentifier("fishbattery", "launcher_cape_dynamic");
+    final Class<?> identifierType = findIdentifierParameterType(textureManager, dynamicTexture);
+    if (identifierType == null) return null;
+
+    final Object textureId = newIdentifier(identifierType, "fishbattery", "launcher_cape_dynamic");
     if (textureId == null) return null;
 
     if (!registerTexture(textureManager, textureId, dynamicTexture)) return null;
@@ -168,41 +243,16 @@ public final class LauncherCapeRuntime {
   }
 
   private static boolean isLocalPlayerProfile(Object playerInfoLike) {
-    final Object mc = getMinecraftInstance();
-    if (mc == null) return false;
-
-    final Object player = readFieldOrGetter(mc, "player", "player", "getPlayer");
-    if (player == null) return false;
-
-    final UUID localUuid = asUuid(invokeNoArg(player, "getUUID", "getUuid"));
-    if (localUuid == null) return false;
-
-    final Object profile = invokeNoArg(playerInfoLike, "getProfile", "getProfile");
-    if (profile == null) return false;
-
-    final UUID profileUuid = asUuid(invokeNoArg(profile, "id", "getId"));
-    return profileUuid != null && localUuid.equals(profileUuid);
+    final UUID localUuid = getConfiguredLocalPlayerUuid();
+    if (localUuid == null) return true;
+    final UUID profileUuid = extractUuid(playerInfoLike, new IdentityHashMap<>(), 0);
+    if (profileUuid == null) return true;
+    return localUuid.equals(profileUuid);
   }
 
-  private static Object getMinecraftInstance() {
-    return invokeStaticNoArg(
-      new String[] {
-        "net.minecraft.client.Minecraft",
-        "net.minecraft.client.MinecraftClient"
-      },
-      new String[] { "getInstance", "getInstance" }
-    );
-  }
-
-  private static Object readNativeImage(InputStream input) throws IOException {
-    final Class<?> clazz = findClass("com.mojang.blaze3d.platform.NativeImage");
-    if (clazz == null) return null;
-
-    final Method read = findMethod(clazz, "read", 1);
-    if (read == null) return null;
-
+  private static NativeImage readNativeImage(InputStream input) throws IOException {
     try (InputStream in = input) {
-      return read.invoke(null, in);
+      return NativeImage.read(in);
     } catch (Exception e) {
       return null;
     }
@@ -260,71 +310,84 @@ public final class LauncherCapeRuntime {
   }
 
   private static Object newDynamicTexture(Object nativeImage) {
-    for (String cn : new String[] {
-      "net.minecraft.client.renderer.texture.DynamicTexture",
-      "net.minecraft.client.texture.NativeImageBackedTexture"
-    }) {
-      final Class<?> cls = findClass(cn);
-      if (cls == null) continue;
-      for (Constructor<?> c : cls.getDeclaredConstructors()) {
-        final Class<?>[] p = c.getParameterTypes();
-        if (p.length == 1 && p[0].isInstance(nativeImage)) {
-          try {
-            c.setAccessible(true);
-            return c.newInstance(nativeImage);
-          } catch (Exception ignored) {}
-        }
+    if (!(nativeImage instanceof NativeImage)) return null;
+    for (Constructor<?> c : DynamicTexture.class.getDeclaredConstructors()) {
+      final Class<?>[] p = c.getParameterTypes();
+      if (p.length == 1 && p[0].isAssignableFrom(nativeImage.getClass())) {
+        try {
+          c.setAccessible(true);
+          return c.newInstance(nativeImage);
+        } catch (Exception ignored) {}
+      }
+      if (p.length == 2 && p[1].isAssignableFrom(nativeImage.getClass())) {
+        final Object firstArg = buildDynamicTextureNameArg(p[0]);
+        if (firstArg == null) continue;
+        try {
+          c.setAccessible(true);
+          return c.newInstance(firstArg, nativeImage);
+        } catch (Exception ignored) {}
       }
     }
     return null;
   }
 
-  private static Object newIdentifier(String namespace, String path) {
-    final Class<?>[] classes = new Class<?>[] {
-      findClass("net.minecraft.resources.ResourceLocation"),
-      findClass("net.minecraft.resources.Identifier"),
-      findClass("net.minecraft.util.Identifier")
-    };
+  private static Object newIdentifier(Class<?> cls, String namespace, String path) {
 
-    for (Class<?> cls : classes) {
-      if (cls == null) continue;
-
-      for (String factory : new String[] { "fromNamespaceAndPath", "of", "tryParse" }) {
-        Method m = findMethod(cls, factory, 2);
-        if (m != null) {
-          try {
-            return m.invoke(null, namespace, path);
-          } catch (Exception ignored) {}
-        }
+    for (Constructor<?> c : cls.getDeclaredConstructors()) {
+      Class<?>[] p = c.getParameterTypes();
+      if (p.length == 2 && p[0] == String.class && p[1] == String.class) {
+        try {
+          c.setAccessible(true);
+          return c.newInstance(namespace, path);
+        } catch (Exception ignored) {}
       }
-
-      for (Constructor<?> c : cls.getDeclaredConstructors()) {
-        Class<?>[] p = c.getParameterTypes();
-        if (p.length == 2 && p[0] == String.class && p[1] == String.class) {
-          try {
-            c.setAccessible(true);
-            return c.newInstance(namespace, path);
-          } catch (Exception ignored) {}
-        }
-        if (p.length == 1 && p[0] == String.class) {
-          try {
-            c.setAccessible(true);
-            return c.newInstance(namespace + ":" + path);
-          } catch (Exception ignored) {}
-        }
+      if (p.length == 1 && p[0] == String.class) {
+        try {
+          c.setAccessible(true);
+          return c.newInstance(namespace + ":" + path);
+        } catch (Exception ignored) {}
       }
     }
 
+    for (Method m : cls.getDeclaredMethods()) {
+      if ((m.getModifiers() & java.lang.reflect.Modifier.STATIC) == 0) continue;
+      if (!cls.isAssignableFrom(m.getReturnType())) continue;
+      final Class<?>[] p = m.getParameterTypes();
+      if (p.length == 2 && p[0] == String.class && p[1] == String.class) {
+        try {
+          m.setAccessible(true);
+          return m.invoke(null, namespace, path);
+        } catch (Exception ignored) {}
+      }
+      if (p.length == 1 && p[0] == String.class) {
+        try {
+          m.setAccessible(true);
+          return m.invoke(null, namespace + ":" + path);
+        } catch (Exception ignored) {}
+      }
+    }
+
+    return null;
+  }
+
+  private static Class<?> findIdentifierParameterType(Object manager, Object texture) {
+    if (manager == null || texture == null) return null;
+    final Class<?> textureType = texture.getClass();
+    for (Method m : manager.getClass().getMethods()) {
+      if (m.getParameterCount() != 2) continue;
+      final Class<?>[] p = m.getParameterTypes();
+      if (!p[1].isAssignableFrom(textureType)) continue;
+      return p[0];
+    }
     return null;
   }
 
   private static boolean registerTexture(Object manager, Object id, Object texture) {
     for (Method m : manager.getClass().getMethods()) {
-      String n = m.getName();
-      if (!("register".equals(n) || "registerTexture".equals(n))) continue;
       if (m.getParameterCount() != 2) continue;
       Class<?>[] p = m.getParameterTypes();
-      if (!p[0].isInstance(id) || !p[1].isInstance(texture)) continue;
+      if (!p[0].isInstance(id)) continue;
+      if (!p[1].isAssignableFrom(texture.getClass())) continue;
       try {
         m.invoke(manager, id, texture);
         return true;
@@ -356,43 +419,115 @@ public final class LauncherCapeRuntime {
     return invokeNoArg(target, getters);
   }
 
-  private static Object invokeStaticNoArg(String[] classNames, String[] methodNames) {
-    for (String className : classNames) {
-      Class<?> c = findClass(className);
-      if (c == null) continue;
-      for (String methodName : methodNames) {
-        try {
-          Method m = c.getMethod(methodName);
-          m.setAccessible(true);
-          Object out = m.invoke(null);
-          if (out != null) return out;
-        } catch (Exception ignored) {}
-      }
+  private static Object buildDynamicTextureNameArg(Class<?> type) {
+    if (type == String.class) return "fishbattery_launcher_cape";
+    if (Supplier.class.isAssignableFrom(type)) {
+      return (Supplier<String>) () -> "fishbattery_launcher_cape";
     }
     return null;
   }
 
-  private static Class<?> findClass(String name) {
+  private static UUID getConfiguredLocalPlayerUuid() {
+    final String raw = String.valueOf(System.getProperty(PLAYER_UUID_PROPERTY, "")).trim();
+    if (raw.equals(cachedLocalUuidRaw)) return cachedLocalUuid;
+    cachedLocalUuidRaw = raw;
+    if (raw.isEmpty()) {
+      cachedLocalUuid = null;
+      return null;
+    }
     try {
-      return Class.forName(name);
-    } catch (Throwable ignored) {
+      cachedLocalUuid = UUID.fromString(raw);
+      return cachedLocalUuid;
+    } catch (Exception ignored) {
+      cachedLocalUuid = null;
       return null;
     }
   }
 
-  private static Method findMethod(Class<?> clazz, String name, int paramCount) {
-    for (Method m : clazz.getMethods()) {
-      if (m.getName().equals(name) && m.getParameterCount() == paramCount) return m;
+  private static UUID extractUuid(Object target, Map<Object, Boolean> seen, int depth) {
+    if (target == null || depth > 4 || seen.containsKey(target)) return null;
+    seen.put(target, Boolean.TRUE);
+
+    if (target instanceof UUID) return (UUID) target;
+
+    for (String name : new String[] { "id", "getId", "uuid", "getUuid", "getUUID" }) {
+      Object value = invokeNoArg(target, name);
+      if (value instanceof UUID) return (UUID) value;
     }
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(name) && m.getParameterCount() == paramCount) return m;
+
+    for (Method method : target.getClass().getMethods()) {
+      if (method.getParameterCount() != 0) continue;
+      final Class<?> returnType = method.getReturnType();
+      if (returnType == UUID.class) {
+        try {
+          method.setAccessible(true);
+          final Object out = method.invoke(target);
+          if (out instanceof UUID) return (UUID) out;
+        } catch (Exception ignored) {}
+      }
+      if (returnType == Object.class || returnType.isPrimitive() || returnType.isArray()) continue;
+      final UUID nested = invokeNestedUuid(target, method, seen, depth);
+      if (nested != null) return nested;
     }
+
+    Class<?> cursor = target.getClass();
+    while (cursor != null && cursor != Object.class) {
+      for (Field field : cursor.getDeclaredFields()) {
+        if (field.getType() == UUID.class) {
+          try {
+            field.setAccessible(true);
+            final Object out = field.get(target);
+            if (out instanceof UUID) return (UUID) out;
+          } catch (Exception ignored) {}
+        }
+        if (field.getType().isPrimitive() || field.getType().isArray()) continue;
+        try {
+          field.setAccessible(true);
+          final Object nestedObject = field.get(target);
+          final UUID nested = extractUuid(nestedObject, seen, depth + 1);
+          if (nested != null) return nested;
+        } catch (Exception ignored) {}
+      }
+      cursor = cursor.getSuperclass();
+    }
+
     return null;
   }
 
-  private static UUID asUuid(Object maybeUuid) {
-    if (maybeUuid instanceof UUID) return (UUID) maybeUuid;
-    return null;
+  private static UUID invokeNestedUuid(Object target, Method method, Map<Object, Boolean> seen, int depth) {
+    try {
+      method.setAccessible(true);
+      final Object nestedObject = method.invoke(target);
+      return extractUuid(nestedObject, seen, depth + 1);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private static boolean parametersMatch(Class<?>[] types, Object[] args) {
+    if (types.length != args.length) return false;
+    for (int i = 0; i < types.length; i++) {
+      if (args[i] == null) {
+        if (types[i].isPrimitive()) return false;
+        continue;
+      }
+      if (!isAssignable(types[i], args[i].getClass())) return false;
+    }
+    return true;
+  }
+
+  private static boolean isAssignable(Class<?> target, Class<?> source) {
+    if (target.isAssignableFrom(source)) return true;
+    if (!target.isPrimitive()) return false;
+    if (target == boolean.class) return source == Boolean.class;
+    if (target == byte.class) return source == Byte.class;
+    if (target == short.class) return source == Short.class || source == Byte.class;
+    if (target == int.class) return source == Integer.class || source == Short.class || source == Byte.class;
+    if (target == long.class) return source == Long.class || source == Integer.class || source == Short.class || source == Byte.class;
+    if (target == float.class) return source == Float.class || source == Long.class || source == Integer.class;
+    if (target == double.class) return source == Double.class || source == Float.class || source == Long.class;
+    if (target == char.class) return source == Character.class;
+    return false;
   }
 
   private static Path resolveCatalogPath() {

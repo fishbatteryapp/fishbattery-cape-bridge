@@ -18,8 +18,13 @@ public final class CapeMenuBridge {
   public static void tryAttachToScreen(Object screenLike, boolean pauseMenu) {
     if (!(screenLike instanceof Screen screen)) return;
     if (isAlreadyAdded(screen)) return;
-    final int width = readIntField(screen, "width", 0);
-    final int height = readIntField(screen, "height", 0);
+    final Minecraft mc = Minecraft.getInstance();
+    final int width = mc != null && mc.getWindow() != null
+      ? mc.getWindow().getGuiScaledWidth()
+      : readIntField(screen, "width", 0);
+    final int height = mc != null && mc.getWindow() != null
+      ? mc.getWindow().getGuiScaledHeight()
+      : readIntField(screen, "height", 0);
     if (width <= 0 || height <= 0) return;
 
     final int btnW = 98;
@@ -40,16 +45,33 @@ public final class CapeMenuBridge {
   }
 
   private static boolean addWidget(Screen screen, Object widget) {
-    for (String name : new String[] { "addRenderableWidget", "addDrawableChild", "addButton" }) {
-      for (Method m : screen.getClass().getMethods()) {
-        if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
-        final Class<?> p = m.getParameterTypes()[0];
-        if (!p.isAssignableFrom(widget.getClass())) continue;
-        try {
-          m.invoke(screen, widget);
-          return true;
-        } catch (Exception ignored) {}
+    Method preferred = null;
+    for (Method m : screen.getClass().getMethods()) {
+      if (m.getParameterCount() != 1) continue;
+      final Class<?> p = m.getParameterTypes()[0];
+      if (!p.isAssignableFrom(widget.getClass())) continue;
+      final Class<?> r = m.getReturnType();
+      if (r == void.class) continue;
+      if (r.isAssignableFrom(widget.getClass()) || widget.getClass().isAssignableFrom(r)) {
+        preferred = m;
+        break;
       }
+    }
+    if (preferred != null) {
+      try {
+        preferred.invoke(screen, widget);
+        return true;
+      } catch (Exception ignored) {}
+    }
+
+    for (Method m : screen.getClass().getMethods()) {
+      if (m.getParameterCount() != 1) continue;
+      final Class<?> p = m.getParameterTypes()[0];
+      if (!p.isAssignableFrom(widget.getClass())) continue;
+      try {
+        m.invoke(screen, widget);
+        return true;
+      } catch (Exception ignored) {}
     }
     return false;
   }
@@ -58,7 +80,11 @@ public final class CapeMenuBridge {
     if (label == null || onPress == null) return null;
     try {
       for (Method m : Button.class.getMethods()) {
-        if (!m.getName().equals("builder") || m.getParameterCount() != 2) continue;
+        if ((m.getModifiers() & java.lang.reflect.Modifier.STATIC) == 0) continue;
+        if (m.getParameterCount() != 2) continue;
+        final Class<?>[] p = m.getParameterTypes();
+        if (!p[0].isAssignableFrom(label.getClass())) continue;
+        if (!p[1].isAssignableFrom(onPress.getClass())) continue;
         final Object builder = m.invoke(null, label, onPress);
         if (builder == null) continue;
         if (!applyBuilderBounds(builder, x, y, width, height)) continue;
@@ -111,11 +137,13 @@ public final class CapeMenuBridge {
   }
 
   private static boolean applyBuilderBounds(Object builder, int x, int y, int width, int height) {
-    for (String name : new String[] { "bounds", "dimensions" }) {
+    for (Method method : builder.getClass().getMethods()) {
+      if (method.getParameterCount() != 4) continue;
+      final Class<?>[] p = method.getParameterTypes();
+      if (p[0] != int.class || p[1] != int.class || p[2] != int.class || p[3] != int.class) continue;
       try {
-        final Method method = builder.getClass().getMethod(name, int.class, int.class, int.class, int.class);
-        method.invoke(builder, Integer.valueOf(x), Integer.valueOf(y), Integer.valueOf(width), Integer.valueOf(height));
-        return true;
+        final Object out = method.invoke(builder, Integer.valueOf(x), Integer.valueOf(y), Integer.valueOf(width), Integer.valueOf(height));
+        if (out == null || out == builder || builder.getClass().isAssignableFrom(out.getClass())) return true;
       } catch (Exception ignored) {}
     }
     return false;
