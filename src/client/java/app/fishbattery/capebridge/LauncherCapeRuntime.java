@@ -29,6 +29,7 @@ public final class LauncherCapeRuntime {
 
   private static String cachedSourceKey = "";
   private static Object cachedTextureId = null;
+  private static Object cachedCapeTextureHandle = null;
 
   private LauncherCapeRuntime() {}
 
@@ -38,6 +39,17 @@ public final class LauncherCapeRuntime {
       return reloadCapeTextureFromSystemProperties();
     } catch (Throwable t) {
       System.err.println("[fishbattery_cape_bridge] Failed to load launcher cape: " + t.getMessage());
+      return null;
+    }
+  }
+
+  public static Object tryGetCapeTextureForLocalPlayerEntity(Object playerLike) {
+    try {
+      if (!isLocalPlayerEntity(playerLike)) return null;
+      reloadCapeTextureFromSystemProperties();
+      return cachedTextureId;
+    } catch (Throwable t) {
+      System.err.println("[fishbattery_cape_bridge] Failed to resolve local player cape texture: " + t.getMessage());
       return null;
     }
   }
@@ -104,6 +116,7 @@ public final class LauncherCapeRuntime {
       System.setProperty(CAPE_TIER_PROPERTY, "");
       cachedSourceKey = "";
       cachedTextureId = null;
+      cachedCapeTextureHandle = null;
       saveSelectedCapeToCatalog("");
       saveSelectedCapeToMeta("", "", "", "");
       return true;
@@ -125,6 +138,7 @@ public final class LauncherCapeRuntime {
     System.setProperty(CAPE_TIER_PROPERTY, selected.tier);
     cachedSourceKey = "";
     cachedTextureId = null;
+    cachedCapeTextureHandle = null;
     reloadCapeTextureFromSystemProperties();
     saveSelectedCapeToCatalog(selected.id);
     saveSelectedCapeToMeta(selected.id, selected.tier, selected.fullPath, selected.cloudUrl);
@@ -136,8 +150,8 @@ public final class LauncherCapeRuntime {
     final String rawUrl = System.getProperty(CAPE_URL_PROPERTY, "").trim();
     final CapeSource source = resolveCapeSource(rawPath, rawUrl);
     if (source == null) return null;
-    if (source.cacheKey.equals(cachedSourceKey) && cachedTextureId != null) {
-      return cachedTextureId;
+    if (source.cacheKey.equals(cachedSourceKey) && cachedCapeTextureHandle != null) {
+      return cachedCapeTextureHandle;
     }
 
     final Object mc = getMinecraftInstance();
@@ -162,9 +176,13 @@ public final class LauncherCapeRuntime {
 
     if (!registerTexture(textureManager, textureId, dynamicTexture)) return null;
 
+    final Object capeTextureHandle = newCapeTextureHandle(textureId);
+    if (capeTextureHandle == null) return null;
+
     cachedSourceKey = source.cacheKey;
     cachedTextureId = textureId;
-    return textureId;
+    cachedCapeTextureHandle = capeTextureHandle;
+    return cachedCapeTextureHandle;
   }
 
   private static boolean isLocalPlayerProfile(Object playerInfoLike) {
@@ -182,6 +200,18 @@ public final class LauncherCapeRuntime {
 
     final UUID profileUuid = asUuid(invokeNoArg(profile, "id", "getId"));
     return profileUuid != null && localUuid.equals(profileUuid);
+  }
+
+  private static boolean isLocalPlayerEntity(Object playerLike) {
+    if (playerLike == null) return false;
+    final Object mc = getMinecraftInstance();
+    if (mc == null) return false;
+    final Object localPlayer = readFieldOrGetter(mc, "player", "player", "getPlayer");
+    if (localPlayer == null) return false;
+    final UUID localUuid = asUuid(invokeNoArg(localPlayer, "getUUID", "getUuid"));
+    if (localUuid == null) return false;
+    final UUID candidateUuid = asUuid(invokeNoArg(playerLike, "getUUID", "getUuid"));
+    return candidateUuid != null && localUuid.equals(candidateUuid);
   }
 
   private static Object getMinecraftInstance() {
@@ -317,6 +347,21 @@ public final class LauncherCapeRuntime {
     }
 
     return null;
+  }
+
+  private static Object newCapeTextureHandle(Object textureId) {
+    if (textureId == null) return null;
+    try {
+      final Class<?> resourceTexture = Class.forName("net.minecraft.core.ClientAsset$ResourceTexture");
+      for (Constructor<?> c : resourceTexture.getDeclaredConstructors()) {
+        final Class<?>[] p = c.getParameterTypes();
+        if (p.length == 2 && p[0].isInstance(textureId) && p[1].isInstance(textureId)) {
+          c.setAccessible(true);
+          return c.newInstance(textureId, textureId);
+        }
+      }
+    } catch (Throwable ignored) {}
+    return textureId;
   }
 
   private static boolean registerTexture(Object manager, Object id, Object texture) {

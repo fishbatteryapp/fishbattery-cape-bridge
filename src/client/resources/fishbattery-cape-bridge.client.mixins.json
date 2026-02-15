@@ -3,13 +3,9 @@
   "package": "app.fishbattery.capebridge.mixin.client",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "PlayerListEntryCapeMixin",
-    "PlayerListEntrySkinMixin",
-    "PlayerInfoCapeMixin",
-    "PlayerInfoSkinMixin",
+    "AbstractClientPlayerCapeMixin",
     "TitleScreenCapeButtonMixin",
-    "PauseScreenCapeButtonMixin",
-    "GameMenuScreenCapeButtonMixin"
+    "PauseScreenCapeButtonMixin"
   ],
   "injectors": {
     "defaultRequire": 1

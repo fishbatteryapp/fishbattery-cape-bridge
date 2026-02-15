@@ -41,14 +41,19 @@ public final class CapeMenuBridge {
 
   private static boolean addWidget(Screen screen, Object widget) {
     for (String name : new String[] { "addRenderableWidget", "addDrawableChild", "addButton" }) {
-      for (Method m : screen.getClass().getMethods()) {
-        if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
-        final Class<?> p = m.getParameterTypes()[0];
-        if (!p.isAssignableFrom(widget.getClass())) continue;
-        try {
-          m.invoke(screen, widget);
-          return true;
-        } catch (Exception ignored) {}
+      Class<?> cls = screen.getClass();
+      while (cls != null) {
+        for (Method m : cls.getDeclaredMethods()) {
+          if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
+          final Class<?> p = m.getParameterTypes()[0];
+          if (!p.isAssignableFrom(widget.getClass())) continue;
+          try {
+            m.setAccessible(true);
+            m.invoke(screen, widget);
+            return true;
+          } catch (Exception ignored) {}
+        }
+        cls = cls.getSuperclass();
       }
     }
     return false;
@@ -122,12 +127,16 @@ public final class CapeMenuBridge {
   }
 
   private static int readIntField(Object target, String field, int fallback) {
-    try {
-      final Field f = target.getClass().getSuperclass().getDeclaredField(field);
-      f.setAccessible(true);
-      final Object value = f.get(target);
-      if (value instanceof Number) return ((Number) value).intValue();
-    } catch (Exception ignored) {}
+    Class<?> cls = target.getClass();
+    while (cls != null) {
+      try {
+        final Field f = cls.getDeclaredField(field);
+        f.setAccessible(true);
+        final Object value = f.get(target);
+        if (value instanceof Number) return ((Number) value).intValue();
+      } catch (Exception ignored) {}
+      cls = cls.getSuperclass();
+    }
     return fallback;
   }
 

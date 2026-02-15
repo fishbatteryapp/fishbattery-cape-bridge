@@ -130,14 +130,19 @@ public final class CapeSelectorScreen extends Screen {
   private void addWidgetCompat(Object widget) {
     if (widget == null) return;
     for (String name : new String[] { "addRenderableWidget", "addDrawableChild", "addButton" }) {
-      for (Method m : this.getClass().getMethods()) {
-        if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
-        final Class<?> p = m.getParameterTypes()[0];
-        if (!p.isAssignableFrom(widget.getClass())) continue;
-        try {
-          m.invoke(this, widget);
-          return;
-        } catch (Exception ignored) {}
+      Class<?> cls = this.getClass();
+      while (cls != null) {
+        for (Method m : cls.getDeclaredMethods()) {
+          if (!m.getName().equals(name) || m.getParameterCount() != 1) continue;
+          final Class<?> p = m.getParameterTypes()[0];
+          if (!p.isAssignableFrom(widget.getClass())) continue;
+          try {
+            m.setAccessible(true);
+            m.invoke(this, widget);
+            return;
+          } catch (Exception ignored) {}
+        }
+        cls = cls.getSuperclass();
       }
     }
   }
