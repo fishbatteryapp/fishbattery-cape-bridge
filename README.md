@@ -19,9 +19,18 @@ Standalone repo scaffold for the launcher cape bridge mod.
 
 ## Release automation
 GitHub Actions workflow: `.github/workflows/release.yml`
-- Manual dispatch supports release tag input.
 - Builds every MC + loader target in `config/release-matrix.json`.
-- Uploads all jars to a GitHub Release.
+- Publishes grouped releases by loader:
+  - `v<modVersion>-fabric`
+  - `v<modVersion>-quilt`
+- Each grouped release contains all target jars named:
+  - `fishbattery-cape-bridge-<modVersion>-<minecraft>-<loader>.jar`
+
+## Migrate old releases
+To migrate legacy tags (`v<minecraft>-<modVersion>-<loader>`) to grouped tags:
+```powershell
+node ./scripts/migrate-release-layout.mjs --delete-old
+```
 
 ## Notes
 - Source currently uses modern client skin APIs from the existing bridge implementation.

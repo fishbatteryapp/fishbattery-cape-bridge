@@ -3,6 +3,7 @@
 build/
 out/
 run/
+.release-artifacts/
 
 # IDE
 .idea/

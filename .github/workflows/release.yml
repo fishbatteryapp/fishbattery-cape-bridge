@@ -11,8 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      mod_version: ${{ steps.meta.outputs.mod_version }}
     steps:
       - uses: actions/checkout@v4
+      - id: meta
+        shell: bash
+        run: |
+          MOD_VERSION="$(grep '^mod_version=' gradle.properties | cut -d'=' -f2)"
+          echo "mod_version=${MOD_VERSION}" >> "$GITHUB_OUTPUT"
       - id: matrix
         shell: bash
         run: |
@@ -56,20 +62,34 @@ jobs:
           chmod +x ./gradlew
           ./gradlew clean build -Ptarget=${{ matrix.target }} -Ploader=${{ matrix.loader }}
 
-      - name: Resolve mod version
-        id: modver
-        run: |
-          MOD_VERSION="$(grep '^mod_version=' gradle.properties | cut -d'=' -f2)"
-          echo "mod_version=${MOD_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${{ matrix.mc }}-${MOD_VERSION}-${{ matrix.loader }}" >> "$GITHUB_OUTPUT"
+      - name: Upload target artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cape-bridge-${{ matrix.loader }}-${{ matrix.mc }}
+          files: |
+            build/libs/fishbattery-cape-bridge-${{ needs.prepare-matrix.outputs.mod_version }}-${{ matrix.mc }}-${{ matrix.loader }}.jar
+          if-no-files-found: error
 
-      - name: Create GitHub release
+  publish:
+    needs: [prepare-matrix, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        loader: [fabric, quilt]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: cape-bridge-${{ matrix.loader }}-*
+          merge-multiple: true
+
+      - name: Create GitHub release (grouped by loader)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.modver.outputs.tag }}
-          name: ${{ steps.modver.outputs.tag }}
+          tag_name: v${{ needs.prepare-matrix.outputs.mod_version }}-${{ matrix.loader }}
+          name: v${{ needs.prepare-matrix.outputs.mod_version }}-${{ matrix.loader }}
           generate_release_notes: true
           overwrite_files: true
           files: |
-            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-${{ matrix.mc }}-${{ matrix.loader }}.jar
-            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-sources.jar
+            artifacts/*.jar
