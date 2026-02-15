@@ -67,7 +67,7 @@ jobs:
         with:
           name: cape-bridge-${{ matrix.loader }}-${{ matrix.mc }}
           files: |
-            build/libs/fishbattery-cape-bridge-${{ needs.prepare-matrix.outputs.mod_version }}-${{ matrix.mc }}-${{ matrix.loader }}.jar
+            build/libs/fishbattery-cape-bridge-${{ needs.prepare-matrix.outputs.mod_version }}-*-${{ matrix.loader }}.jar
           if-no-files-found: error
 
   publish:
