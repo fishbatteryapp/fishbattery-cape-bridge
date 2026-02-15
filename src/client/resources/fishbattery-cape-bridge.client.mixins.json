@@ -6,7 +6,10 @@
     "PlayerListEntryCapeMixin",
     "PlayerListEntrySkinMixin",
     "PlayerInfoCapeMixin",
-    "PlayerInfoSkinMixin"
+    "PlayerInfoSkinMixin",
+    "TitleScreenCapeButtonMixin",
+    "PauseScreenCapeButtonMixin",
+    "GameMenuScreenCapeButtonMixin"
   ],
   "injectors": {
     "defaultRequire": 1
