@@ -1,0 +1,11 @@
+{
+  "required": false,
+  "package": "app.fishbattery.capebridge.mixin.client",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "PlayerListEntrySkinMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

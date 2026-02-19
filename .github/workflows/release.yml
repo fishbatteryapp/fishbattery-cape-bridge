@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          targets = json.loads(Path("config/release-matrix.json").read_text(encoding="utf-8"))
+          include = []
+          for t in targets:
+            mc = str(t["minecraft"])
+            tid = str(t["id"])
+            include.append({"mc": mc, "target": tid, "loader": "fabric"})
+            include.append({"mc": mc, "target": tid, "loader": "quilt"})
+          matrix = json.dumps({'include': include}, separators=(',', ':'))
+          print(f"matrix={matrix}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"matrix={matrix}\n")
+          PY
+
+  build:
+    needs: prepare-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build -Ptarget=${{ matrix.target }} -Ploader=${{ matrix.loader }}
+
+      - name: Resolve mod version
+        id: modver
+        run: |
+          MOD_VERSION="$(grep '^mod_version=' gradle.properties | cut -d'=' -f2)"
+          echo "mod_version=${MOD_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ matrix.mc }}-${MOD_VERSION}-${{ matrix.loader }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.modver.outputs.tag }}
+          name: ${{ steps.modver.outputs.tag }}
+          generate_release_notes: true
+          overwrite_files: true
+          files: |
+            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-${{ matrix.mc }}-${{ matrix.loader }}.jar
+            build/libs/fishbattery-cape-bridge-${{ steps.modver.outputs.mod_version }}-sources.jar
