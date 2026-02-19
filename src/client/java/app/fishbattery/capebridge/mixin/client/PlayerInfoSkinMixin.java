@@ -21,12 +21,4 @@ abstract class PlayerInfoSkinMixin {
   private void fishbattery$replaceCapeOnGetSkin(CallbackInfoReturnable<Object> cir) {
     fishbattery$tryReplace(cir);
   }
-
-<<<<<<< HEAD
-=======
-  @Inject(method = "getSkinTextures", at = @At("RETURN"), cancellable = true, require = 0)
-  private void fishbattery$replaceCapeOnGetSkinTextures(CallbackInfoReturnable<Object> cir) {
-    fishbattery$tryReplace(cir);
-  }
->>>>>>> origin/main
 }
