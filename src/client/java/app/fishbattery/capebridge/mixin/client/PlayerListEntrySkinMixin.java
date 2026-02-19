@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(targets = "net.minecraft.client.network.PlayerListEntry")
 abstract class PlayerListEntrySkinMixin {
+<<<<<<< HEAD
   private static boolean fishbattery$loggedCapeTextureHook = false;
 
   @Inject(method = "getCapeTexture", at = @At("HEAD"), cancellable = true, require = 0)
@@ -20,10 +21,25 @@ abstract class PlayerListEntrySkinMixin {
       }
       cir.setReturnValue(cape);
     }
+=======
+  private void fishbattery$tryReplace(CallbackInfoReturnable<Object> cir) {
+    final Object capeTexture = LauncherCapeRuntime.tryGetCapeTextureForLocalPlayer(this);
+    if (capeTexture == null) return;
+    final Object currentSkin = cir.getReturnValue();
+    if (currentSkin == null) return;
+    final Object replacedSkin = LauncherCapeRuntime.tryReplaceCapeOnSkin(currentSkin, capeTexture);
+    if (replacedSkin != null) cir.setReturnValue(replacedSkin);
+  }
+
+  @Inject(method = "getSkin", at = @At("RETURN"), cancellable = true, require = 0)
+  private void fishbattery$replaceCapeOnGetSkin(CallbackInfoReturnable<Object> cir) {
+    fishbattery$tryReplace(cir);
+>>>>>>> origin/main
   }
 
   @Inject(method = "getSkinTextures", at = @At("RETURN"), cancellable = true, require = 0)
   private void fishbattery$replaceCapeOnGetSkinTextures(CallbackInfoReturnable<Object> cir) {
+<<<<<<< HEAD
     final Object newCape = LauncherCapeRuntime.tryGetCapeTextureForLocalPlayer(this);
     if (newCape == null) return;
 
@@ -47,3 +63,9 @@ abstract class PlayerListEntrySkinMixin {
     if (replaced != null) cir.setReturnValue(replaced);
   }
 }
+=======
+    fishbattery$tryReplace(cir);
+  }
+}
+
+>>>>>>> origin/main

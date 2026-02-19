@@ -4,7 +4,10 @@ plugins {
 }
 
 import groovy.json.JsonSlurper
+<<<<<<< HEAD
 import groovy.xml.XmlSlurper
+=======
+>>>>>>> origin/main
 
 version = project.mod_version
 group = project.maven_group
@@ -58,6 +61,7 @@ final String resolvedQuiltLoader = targetLoader == 'quilt'
     ? resolveQuiltLoaderVersion(targetMc, target.quiltLoader)
     : String.valueOf(target.quiltLoader ?: '')
 
+<<<<<<< HEAD
 String resolveYarnMappingsVersion(String mc) {
     try {
         def xml = new XmlSlurper().parse(new URL("https://maven.fabricmc.net/net/fabricmc/yarn/maven-metadata.xml"))
@@ -80,6 +84,8 @@ String resolveYarnMappingsVersion(String mc) {
 
 final String resolvedYarnMappings = resolveYarnMappingsVersion(targetMc)
 
+=======
+>>>>>>> origin/main
 loom {
     if (supportsSplitSources) {
         splitEnvironmentSourceSets()
@@ -97,7 +103,11 @@ loom {
 
 dependencies {
     minecraft "com.mojang:minecraft:${targetMc}"
+<<<<<<< HEAD
     mappings "net.fabricmc:yarn:${resolvedYarnMappings}:v2"
+=======
+    mappings loom.officialMojangMappings()
+>>>>>>> origin/main
     compileOnly "net.fabricmc:sponge-mixin:0.16.5+mixin.0.8.7"
 
     if (targetLoader == 'fabric') {
